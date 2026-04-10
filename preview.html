@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wiki-IA PRO</title>
+
+<style>
+body {
+    font-family: Arial;
+    background: #0f0f0f;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    margin:0;
+}
+
+.container {
+    width: 480px;
+    height: 700px;
+    background:#1e1e1e;
+    border-radius:20px;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+}
+
+header {
+    background:#2c2c2c;
+    color:#00ffcc;
+    text-align:center;
+    padding:15px;
+    font-weight:bold;
+}
+
+#chat {
+    flex:1;
+    overflow-y:auto;
+    padding:10px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+
+.msg {
+    padding:10px;
+    border-radius:10px;
+    max-width:85%;
+    color:white;
+}
+
+.user { background:#007bff; align-self:flex-end; }
+.bot { background:#333; align-self:flex-start; }
+
+.input {
+    display:flex;
+    padding:10px;
+    gap:8px;
+    background:#222;
+}
+
+input {
+    flex:1;
+    padding:10px;
+    border:none;
+    border-radius:20px;
+    background:#333;
+    color:white;
+}
+
+button {
+    padding:10px;
+    border:none;
+    border-radius:20px;
+    background:#00ffcc;
+    cursor:pointer;
+}
+button:hover { background:#00c9a3; }
+
+small { color:#aaa; }
+img { width:100%; border-radius:10px; margin-top:10px; }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<header>Wiki-IA PRO 🤖</header>
+
+<div id="chat"></div>
+
+<div class="input">
+<input id="text" placeholder="Écris ici..." onkeypress="enter(event)">
+<button onclick="send()">Envoyer</button>
+</div>
+</div>
+
+<script>
+
+let memory = JSON.parse(localStorage.getItem("wiki_memory") || "{}");
+let quizMode = false;
+let quizScore = 0;
+
+const questions = [
+    {q:"Quelle est la capitale de l’Algérie ?", a:"alger"},
+    {q:"Quel est le plus grand océan ?", a:"pacifique"},
+    {q:"En quelle année a commencé la 2ème guerre mondiale ?", a:"1939"}
+];
+
+// 🧠 mémoire
+function saveMemory(key, value){
+    memory[key] = value;
+    localStorage.setItem("wiki_memory", JSON.stringify(memory));
+}
+
+// 🔊 voix
+function speak(text){
+    const s = new SpeechSynthesisUtterance(text);
+    s.lang = "fr-FR";
+    speechSynthesis.speak(s);
+}
+
+// 💬 message
+function add(text, cls){
+    const div = document.createElement("div");
+    div.className="msg "+cls;
+    div.innerHTML = text;
+    document.getElementById("chat").appendChild(div);
+    document.getElementById("chat").scrollTop = 999999;
+
+    if(cls==="bot") speak(text.replace(/<[^>]*>/g,""));
+}
+
+// 🌍 wiki image
+async function getWikiImage(title){
+    try{
+        const url = `https://fr.wikipedia.org/api/rest_v1/page/summary/${title}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        return data.thumbnail?.source || "";
+    }catch{
+        return "";
+    }
+}
+
+// 🌍 wiki text
+async function wikiSearch(q, box){
+
+    const url = `https://fr.wikipedia.org/w/api.php?action=query&list=search&srsearch=${q}&format=json&origin=*`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if(!data.query.search.length){
+        add("❌ Rien trouvé sur Wikipédia","bot");
+        return;
+    }
+
+    const title = data.query.search[0].title;
+
+    const url2 = `https://fr.wikipedia.org/api/rest_v1/page/summary/${title}`;
+    const res2 = await fetch(url2);
+    const data2 = await res2.json();
+
+    let text = data2.extract || "Pas de résumé.";
+
+    add("📚 " + text,"bot");
+
+    // image
+    if(data2.thumbnail){
+        add(`<img src="${data2.thumbnail.source}">`,"bot");
+    }
+
+    // mémoire utilisateur
+    saveMemory("lastTopic", title);
+}
+
+// 🎮 quiz
+function startQuiz(){
+    quizMode = true;
+    quizScore = 0;
+    add("🎮 Mode Quiz activé !","bot");
+    nextQuestion();
+}
+
+function nextQuestion(){
+    if(!quizMode) return;
+
+    const q = questions[Math.floor(Math.random()*questions.length)];
+    memory.currentAnswer = q.a;
+    add("❓ " + q.q,"bot");
+}
+
+function checkAnswer(text){
+    if(!quizMode) return false;
+
+    if(text.toLowerCase().includes(memory.currentAnswer)){
+        quizScore++;
+        add("✅ Bonne réponse ! Score: "+quizScore,"bot");
+    }else{
+        add("❌ Faux ! Réponse: "+memory.currentAnswer,"bot");
+    }
+
+    nextQuestion();
+    return true;
+}
+
+// 🚀 send
+async function send(){
+
+    const input = document.getElementById("text");
+    const text = input.value.trim();
+    if(!text) return;
+
+    add(text,"user");
+    input.value="";
+
+    // commandes
+    if(text==="quiz"){
+        startQuiz();
+        return;
+    }
+
+    if(checkAnswer(text)) return;
+
+    if(text.includes("qui suis-je")){
+        add("Tu es: " + (memory.name || "inconnu"),"bot");
+        return;
+    }
+
+    if(text.startsWith("je m'appelle")){
+        const name = text.replace("je m'appelle","").trim();
+        saveMemory("name", name);
+        add("Enchanté " + name + " 😊","bot");
+        return;
+    }
+
+    add("⏳ Recherche...","bot");
+
+    wikiSearch(text, null);
+}
+
+// enter
+function enter(e){
+    if(e.key==="Enter") send();
+}
+
+</script>
+
+</body>
+</html>
